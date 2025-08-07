@@ -1,0 +1,9 @@
+superysh@superyshdeMacBook-Pro defi_samples % forge test --match-path test/MemeTest.t.sol            
+[⠊] Compiling...
+No files changed, compilation skipped
+
+Ran 3 tests for test/MemeTest.t.sol:MemeTest
+[PASS] testBuyMeme() (gas: 2189740)
+[PASS] testDeployMeme() (gas: 1975858)
+[PASS] testFirstMintAddsLiquidity() (gas: 2145941)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 6.55ms (2.46ms CPU time)
