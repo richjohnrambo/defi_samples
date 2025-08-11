@@ -1,66 +1,127 @@
-## Foundry
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+StakingPool + 借贷市场 + KK Token（每区块 10 个）——ASCII 流程图（含关键公式）
+┌────────────────────────────────────────────────────────────────────────────┐
+│                                 用户侧                                     │
+│                                                                            │
+│  User                      StakingPool Contract                     Lending │
+│  UI/Wallet                     (this)                                Market │
+│                                                                            │
+│   (1) stake()  msg.value            ┌──────────────────────────────┐        │
+│  ────────────────────────────────▶  │  stake() (payable)           │        │
+│                                     │                              │        │
+│                                     │  1) updatePool()             │        │
+│                                     │     - calc blocks = now - lastRewardBlock
+│                                     │     - reward = blocks * REWARD_PER_BLOCK
+│                                     │     - accKKPerShare += reward * 1e12 / totalStaked
+│                                     │     - lastRewardBlock = now   │
+│                                     │                              │
+│                                     │  2) pay pending KK to user if any
+│                                     │     pending = user.amount * accKKPerShare/1e12 - rewardDebt
+│                                     │                              │
+│                                     │  3) lendingMarket.depositETH{value=msg.value}()  ───┐
+│                                     │                              │          │
+│                                     │  4) user.amount += msg.value │          │
+│                                     │     totalStaked += msg.value │          │
+│                                     │  5) user.rewardDebt = user.amount * accKKPerShare/1e12
+│                                     └──────────────────────────────┘          │
+│                                                                               │
+│                                                                               │
+│   (2) 每区块产出 10 KK 全局 (REWARD_PER_BLOCK)                                 │
+│  ────────────────────────────────────────────────────────────────────────────▶│
+│                                                                               │
+│   (3) unstake(amount)               ┌──────────────────────────────┐          │
+│  ◀──────────────────────────────────│  unstake(amount)             │◀─────────┘
+│                                     │                              │
+│                                     │  1) updatePool()             │
+│                                     │  2) pay pending KK to user   │
+│                                     │  3) lendingMarket.withdrawETH(amount)
+│                                     │  4) user.amount -= amount    │
+│                                     │     totalStaked -= amount    │
+│                                     │  5) user.rewardDebt = user.amount * accKKPerShare/1e12
+│                                     │  6) transfer ETH back to user
+│                                     └──────────────────────────────┘
+│                                                                               │
+│   (4) claim()                        ┌──────────────────────────────┐          │
+│  ◀──────────────────────────────────│  claim()                     │
+│                                     │  1) updatePool()             │
+│                                     │  2) pending = user.amount * accKKPerShare/1e12 - rewardDebt
+│                                     │  3) kkToken.mint(user, pending)
+│                                     │  4) user.rewardDebt = user.amount * accKKPerShare/1e12
+│                                     └──────────────────────────────┘
+└────────────────────────────────────────────────────────────────────────────┘
 
-Foundry consists of:
+关键变量与公式（实现时必看）
+全局常量：
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+REWARD_PER_BLOCK = 10（每区块产出 10 个 KK）
 
-## Documentation
+ACC_PRECISION = 1e12（放大因子防止精度丢失）
 
-https://book.getfoundry.sh/
+池子状态：
 
-## Usage
+lastRewardBlock：上一次累计奖励更新的区块号
 
-### Build
+accKKPerShare：累计每单位质押（per ETH wei）可分配的 KK（放大 1e12）
 
-```shell
-$ forge build
-```
+用户状态（UserInfo）：
 
-### Test
+amount：用户当前质押的 ETH（以 wei 计）
 
-```shell
-$ forge test
-```
+rewardDebt：用户上一次交互后记录的 user.amount * accKKPerShare / ACC_PRECISION
 
-### Format
+更新池子（updatePool()）：
 
-```shell
-$ forge fmt
-```
+nginx
+if block.number <= lastRewardBlock: return
+if totalStaked == 0: lastRewardBlock = block.number; return
 
-### Gas Snapshots
+blocks = block.number - lastRewardBlock
+reward = blocks * REWARD_PER_BLOCK
+accKKPerShare += reward * ACC_PRECISION / totalStaked
+lastRewardBlock = block.number
+计算用户可领取（pending）：
 
-```shell
-$ forge snapshot
-```
+ini
+pending = user.amount * accKKPerShare / ACC_PRECISION - user.rewardDebt
+质押（stake()）主要步骤：
 
-### Anvil
+updatePool()
 
-```shell
-$ anvil
-```
+结算并 mint pending（若 >0）
 
-### Deploy
+把 msg.value 调用 lendingMarket.depositETH{value: msg.value}()
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
+增加 user.amount 与 totalStaked
 
-### Cast
+更新 user.rewardDebt = user.amount * accKKPerShare / ACC_PRECISION
 
-```shell
-$ cast <subcommand>
-```
+赎回（unstake(amount)）主要步骤：
 
-### Help
+updatePool()
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+结算并 mint pending
+
+调用 lendingMarket.withdrawETH(amount)
+
+减少 user.amount 与 totalStaked
+
+更新 user.rewardDebt
+
+payable(user).transfer(amount)
+
+实现/安全提醒（快速清单）
+借贷市场接口必须匹配真实合约（deposit/withdraw 是否需要额外参数或有回调）。
+
+lendingMarket.depositETH 可能会改变合约内 ETH 余额（有的市场返回 cToken 或有不同流动性模型），注意同步 totalStaked 与借贷市场中的实际可提现量。
+
+注意 transfer 与 call 的安全用法（避免 reentrancy）；关键函数应加 nonReentrant（OpenZeppelin ReentrancyGuard）。
+
+处理带转账费/代币钩子的特殊 LP（若借贷市场对 ETH 做了包装需适配）。
+
+当 totalStaked == 0 时不应分配奖励（直接 advance lastRewardBlock）。
+
+kkToken.mint 权限：合约需要有 mint 权限或管理员角色；或改为合约持有预铸余额并 transfer。
+
+精度与溢出：Solidity >=0.8 已有溢出检查，但仍需谨慎处理乘法顺序以避免临时超大值。
+
+

@@ -8,23 +8,12 @@ import {WETH9} from "./WETH9.sol";
 
 // 这是一个 Uniswap V2 Router 的简化实现，用于测试。
 contract UniswapV2Router02 is IUniswapV2Router02 {
-    // 将状态变量改为 private，避免自动生成 getter
-    address private immutable _factory;
-    address private immutable _WETH;
+    address public immutable factory;
+    address public immutable WETH;
 
-    constructor(address factoryAddress, address wethAddress) {
-        _factory = factoryAddress;
-        _WETH = wethAddress;
-    }
-
-    // 实现 factory() 函数，返回 immutable 变量
-    function factory() external view override returns (address) {
-        return _factory;
-    }
-
-    // 实现 WETH() 函数，返回 immutable 变量
-    function WETH() external view override returns (address) {
-        return _WETH;
+    constructor(address _factory, address _WETH) {
+        factory = _factory;
+        WETH = _WETH;
     }
 
     function addLiquidity(
